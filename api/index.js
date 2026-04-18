@@ -12,12 +12,23 @@ const server = http.createServer(app);
 
 // Database connection
 const connectionString = process.env.DATABASE_URL;
-const pool = new Pool({
-    connectionString,
-    ssl: connectionString && connectionString.includes('supabase') 
-        ? { rejectUnauthorized: false } 
-        : false
-});
+
+// Parse connection string to add required Supabase pooler options
+let poolConfig;
+if (connectionString) {
+    poolConfig = {
+        connectionString,
+        ssl: { rejectUnauthorized: false },
+        // Required for Supabase Transaction Pooler
+        max: 1,
+        idleTimeoutMillis: 0,
+        connectionTimeoutMillis: 10000,
+    };
+} else {
+    poolConfig = { connectionString };
+}
+
+const pool = new Pool(poolConfig);
 
 // Middleware
 app.use(cors({
