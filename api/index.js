@@ -13,22 +13,32 @@ const server = http.createServer(app);
 // Database connection
 const connectionString = process.env.DATABASE_URL;
 
-// Parse connection string to add required Supabase pooler options
-let poolConfig;
-if (connectionString) {
-    poolConfig = {
-        connectionString,
-        ssl: { rejectUnauthorized: false },
-        // Required for Supabase Transaction Pooler
-        max: 1,
-        idleTimeoutMillis: 0,
-        connectionTimeoutMillis: 10000,
-    };
-} else {
-    poolConfig = { connectionString };
+if (!connectionString) {
+    console.error('❌ DATABASE_URL is not set!');
+    throw new Error('DATABASE_URL environment variable is required');
 }
 
+// Parse connection string to add required Supabase pooler options
+const poolConfig = {
+    connectionString,
+    ssl: { rejectUnauthorized: false },
+    // Optimized for Vercel serverless functions
+    max: 1,
+    idleTimeoutMillis: 0,
+    connectionTimeoutMillis: 10000,
+};
+
 const pool = new Pool(poolConfig);
+
+// Test connection on startup
+pool.query('SELECT NOW()', (err, res) => {
+    if (err) {
+        console.error('❌ Database connection error:', err.message);
+        console.error('Check your DATABASE_URL in Vercel environment variables');
+    } else {
+        console.log('✅ Database connected successfully at', res.rows[0].now);
+    }
+});
 
 // Middleware
 app.use(cors({
@@ -84,7 +94,8 @@ app.post('/api/auth/register', async (req, res) => {
         if (!username || !password) {
             return res.status(400).json({ error: 'Укажите логин и пароль' });
         }
-        
+
+        // Проверка существующего username
         const existingUser = await pool.query(
             'SELECT id FROM users WHERE username = $1',
             [username]
@@ -93,12 +104,24 @@ app.post('/api/auth/register', async (req, res) => {
         if (existingUser.rows.length > 0) {
             return res.status(400).json({ error: 'Пользователь уже существует' });
         }
+
+        // Проверка email только если он указан
+        const emailValue = email && email.trim() !== '' ? email.trim() : null;
+        if (emailValue) {
+            const existingEmail = await pool.query(
+                'SELECT id FROM users WHERE email = $1',
+                [emailValue]
+            );
+            if (existingEmail.rows.length > 0) {
+                return res.status(400).json({ error: 'Email уже используется' });
+            }
+        }
         
         const passwordHash = await bcrypt.hash(password, 10);
         
         const result = await pool.query(
             'INSERT INTO users (username, password_hash, email, balance_fruits) VALUES ($1, $2, $3, $4) RETURNING id, username, email, avatar_url, balance_fruits, rating',
-            [username, passwordHash, email, '{}']
+            [username, passwordHash, emailValue, '{}']
         );
         
         const user = result.rows[0];
