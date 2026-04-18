@@ -1,0 +1,392 @@
+╔════════════════════════════════════════════════════════════════════════════╗
+║                    🎮 BFshop - How Everything Works                        ║
+╚════════════════════════════════════════════════════════════════════════════╝
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                          🌐 SYSTEM ARCHITECTURE                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+    ┌──────────────┐         ┌──────────────┐         ┌──────────────┐
+    │   Browser    │◄───────►│   Backend    │◄───────►│  PostgreSQL  │
+    │  (Frontend)  │  HTTP   │   (Express)  │   SQL   │  (Database)  │
+    │              │         │              │         │              │
+    │  HTML/CSS/JS │         │   Node.js    │         │   9 Tables   │
+    └──────────────┘         └──────────────┘         └──────────────┘
+           │                        │
+           │                        │
+           └────────────────────────┘
+                  WebSocket
+              (Real-time Chat)
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                        👤 USER REGISTRATION FLOW                            │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+1. User opens login.html
+   │
+   ├─► Fills username & password
+   │
+   ├─► Clicks "Sign Up"
+   │
+   ├─► Frontend sends POST /api/auth/register
+   │
+   ├─► Backend hashes password with bcrypt
+   │
+   ├─► Saves to database (users table)
+   │
+   ├─► Returns JWT token
+   │
+   ├─► Frontend saves token to localStorage
+   │
+   └─► Redirects to index.html (logged in)
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                        🛒 LISTING CREATION FLOW                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+1. Seller clicks "Sell" in navigation
+   │
+   ├─► Opens create-listing.html
+   │
+   ├─► Selects type (Account/Boost/Quest/Boss)
+   │
+   ├─► Fills title, description, price
+   │
+   ├─► Adds type-specific details
+   │   ├─► Account: level, fruits, beli
+   │   ├─► Boost: from level, to level, time
+   │   ├─► Quest: quest name, difficulty
+   │   └─► Boss: boss name, quantity
+   │
+   ├─► Clicks "Create Listing"
+   │
+   ├─► Frontend sends POST /api/listings
+   │   (with JWT token in header)
+   │
+   ├─► Backend validates token
+   │
+   ├─► Saves to database (listings table)
+   │
+   ├─► Returns listing ID
+   │
+   └─► Redirects to listing.html?id=X
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                        💰 PURCHASE & CHAT FLOW                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+1. Buyer browses index.html
+   │
+   ├─► Clicks on listing
+   │
+   ├─► Opens listing.html?id=X
+   │
+   ├─► Views details, price, seller info
+   │
+   ├─► Clicks "Buy Now"
+   │
+   ├─► Confirms purchase in modal
+   │
+   ├─► Frontend sends POST /api/orders
+   │   {
+   │     listing_id: X,
+   │     fruit_offered: "Leopard",
+   │     fruit_amount: 5
+   │   }
+   │
+   ├─► Backend creates order (status: pending)
+   │
+   ├─► Saves to database (orders table)
+   │
+   ├─► Returns order ID
+   │
+   └─► Redirects to chat.html?order=Y
+
+2. Chat Opens
+   │
+   ├─► Frontend connects to WebSocket
+   │   socket.emit('join-chat', orderId)
+   │
+   ├─► Backend joins room: order-Y
+   │
+   ├─► Loads chat history from database
+   │
+   ├─► Displays messages
+   │
+   └─► Ready for real-time chat
+
+3. Trading Process
+   │
+   ├─► Buyer & Seller chat
+   │   "I'll send 5x Leopard fruit"
+   │   "OK, send to my account: XYZ"
+   │
+   ├─► Buyer sends fruit IN-GAME
+   │   (not in the website!)
+   │
+   ├─► Seller receives fruit IN-GAME
+   │
+   ├─► Seller clicks "Confirm Order" in chat
+   │
+   ├─► Frontend sends POST /api/orders/Y/confirm
+   │
+   ├─► Backend updates order (status: completed)
+   │
+   ├─► Sends system message to chat
+   │   "✅ Order confirmed! Transaction completed."
+   │
+   └─► Buyer can now leave review
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                        ⭐ REVIEW SYSTEM FLOW                                │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+1. Order is completed
+   │
+   ├─► Chat shows "Leave a Review" section
+   │
+   ├─► Buyer selects stars (1-5)
+   │
+   ├─► Writes comment (optional)
+   │
+   ├─► Clicks "Submit Review"
+   │
+   ├─► Frontend sends POST /api/reviews
+   │   {
+   │     order_id: Y,
+   │     rating: 5,
+   │     comment: "Great seller!"
+   │   }
+   │
+   ├─► Backend saves to database (reviews table)
+   │
+   ├─► Updates seller's average rating
+   │   (calculates from all reviews)
+   │
+   ├─► Updates users table
+   │   SET rating = AVG(all ratings)
+   │   SET total_reviews = COUNT(reviews)
+   │
+   └─► Review appears on seller's profile
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                        🔐 AUTHENTICATION FLOW                               │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+Registration:
+  User Input → Bcrypt Hash → Database → JWT Token → localStorage
+
+Login:
+  User Input → Database Lookup → Bcrypt Compare → JWT Token → localStorage
+
+Protected Routes:
+  Request → JWT Token in Header → Verify Token → Allow/Deny
+
+Session Persistence:
+  Token stored in localStorage → Auto-login on page load → 30 days expiry
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                        💬 WEBSOCKET CHAT FLOW                               │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+Connection:
+  1. Frontend: socket = io('http://localhost:3000')
+  2. Backend: io.on('connection', (socket) => {...})
+  3. Frontend: socket.emit('join-chat', orderId)
+  4. Backend: socket.join(`order-${orderId}`)
+
+Sending Message:
+  1. User types message
+  2. Frontend: socket.emit('send-message', {orderId, senderId, message})
+  3. Backend: Saves to database (chat_messages table)
+  4. Backend: io.to(`order-${orderId}`).emit('new-message', message)
+  5. Frontend: Receives 'new-message' event
+  6. Frontend: Appends message to chat
+
+Real-time Updates:
+  - Both buyer and seller see messages instantly
+  - No page refresh needed
+  - Messages persist in database
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                        📊 DATABASE RELATIONSHIPS                            │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+users
+  ├─► listings (seller_id)
+  ├─► orders (buyer_id, seller_id)
+  ├─► chat_messages (sender_id)
+  ├─► reviews (reviewer_id, reviewed_user_id)
+  └─► sessions (user_id)
+
+listings
+  └─► orders (listing_id)
+
+orders
+  ├─► chat_messages (order_id)
+  └─► reviews (order_id)
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                        🎨 FRONTEND PAGES FLOW                               │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+index.html (Home)
+  ├─► Browse all listings
+  ├─► Filter by type
+  ├─► Search
+  └─► Click listing → listing.html
+
+login.html
+  ├─► Login form
+  ├─► Register form
+  └─► Success → index.html
+
+profile.html
+  ├─► View user info
+  ├─► Upload avatar
+  ├─► View listings
+  └─► View reviews
+
+orders.html
+  ├─► Tab: Buying (orders as buyer)
+  ├─► Tab: Selling (orders as seller)
+  └─► Click order → chat.html
+
+create-listing.html
+  ├─► Select type
+  ├─► Fill form
+  └─► Submit → listing.html
+
+listing.html
+  ├─► View details
+  ├─► View seller info
+  ├─► View reviews
+  └─► Buy → chat.html
+
+chat.html
+  ├─► Real-time messaging
+  ├─► Confirm order (seller)
+  └─► Leave review (buyer)
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                        🔄 COMPLETE USER JOURNEY                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+SELLER JOURNEY:
+  1. Register → login.html
+  2. Upload avatar → profile.html
+  3. Create listing → create-listing.html
+  4. Wait for buyer
+  5. Receive order notification
+  6. Chat with buyer → chat.html
+  7. Receive fruit in-game
+  8. Confirm order → chat.html
+  9. Receive review → profile.html
+
+BUYER JOURNEY:
+  1. Register → login.html
+  2. Browse listings → index.html
+  3. View details → listing.html
+  4. Buy item → chat.html
+  5. Chat with seller
+  6. Send fruit in-game
+  7. Wait for confirmation
+  8. Leave review → chat.html
+  9. View order history → orders.html
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                        🛡️ SECURITY FEATURES                                │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+✅ Password Hashing (Bcrypt)
+   - Passwords never stored in plain text
+   - Salt rounds: 10
+
+✅ JWT Authentication
+   - Tokens expire after 30 days
+   - Verified on every protected route
+
+✅ CORS Protection
+   - Only allowed origins can access API
+   - Configured in server.js
+
+✅ SQL Injection Prevention
+   - Parameterized queries
+   - PostgreSQL prepared statements
+
+✅ XSS Protection
+   - Input sanitization
+   - Content-Type headers
+
+✅ Session Management
+   - Secure cookies in production
+   - HttpOnly flag
+   - SameSite attribute
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                        📈 PERFORMANCE FEATURES                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+✅ Database Indexes
+   - Fast queries on user_id, listing_id, order_id
+   - Indexed foreign keys
+
+✅ WebSocket Connection
+   - Real-time updates without polling
+   - Reduced server load
+
+✅ Efficient Queries
+   - JOIN operations for related data
+   - Pagination ready
+
+✅ Static File Serving
+   - Express static middleware
+   - Fast asset delivery
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                        🎯 KEY TECHNOLOGIES                                  │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+Backend:
+  ✅ Node.js - JavaScript runtime
+  ✅ Express - Web framework
+  ✅ PostgreSQL - Relational database
+  ✅ Socket.IO - WebSocket library
+  ✅ JWT - Token-based auth
+  ✅ Bcrypt - Password hashing
+  ✅ Multer - File uploads
+
+Frontend:
+  ✅ HTML5 - Semantic markup
+  ✅ CSS3 - Modern styling
+  ✅ JavaScript - ES6+ features
+  ✅ Fetch API - HTTP requests
+  ✅ Socket.IO Client - WebSocket
+  ✅ LocalStorage - Token storage
+
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                        ✅ READY TO USE!                                     │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+Everything is connected and working together!
+
+Start now:
+  > START_BFSHOP.bat
+
+Or read:
+  > COMPLETE_SETUP.md
+
+Happy Trading! 🎮🍎
