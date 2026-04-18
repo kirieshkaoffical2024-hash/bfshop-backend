@@ -649,6 +649,21 @@ app.get('/api/users/search', authMiddleware, adminMiddleware, async (req, res) =
 // Get chat messages
 app.get('/api/chat/:orderId', authMiddleware, async (req, res) => {
     try {
+        // Проверяем что пользователь имеет доступ к этому заказу
+        const orderCheck = await pool.query(
+            `SELECT buyer_id, seller_id FROM orders WHERE id = $1`,
+            [req.params.orderId]
+        );
+        
+        if (orderCheck.rows.length === 0) {
+            return res.status(404).json({ error: 'Заказ не найден' });
+        }
+        
+        const order = orderCheck.rows[0];
+        if (order.buyer_id !== req.user.id && order.seller_id !== req.user.id) {
+            return res.status(403).json({ error: 'Доступ запрещён' });
+        }
+        
         const result = await pool.query(
             `SELECT m.*, u.username as sender_name
              FROM chat_messages m
@@ -660,6 +675,7 @@ app.get('/api/chat/:orderId', authMiddleware, async (req, res) => {
         
         res.json({ messages: result.rows });
     } catch (error) {
+        console.error('Get chat messages error:', error);
         res.status(500).json({ error: 'Ошибка загрузки сообщений' });
     }
 });
@@ -669,14 +685,40 @@ app.post('/api/chat/:orderId', authMiddleware, async (req, res) => {
     try {
         const { message } = req.body;
         
+        if (!message || !message.trim()) {
+            return res.status(400).json({ error: 'Сообщение не может быть пустым' });
+        }
+        
+        // Проверяем доступ к заказу
+        const orderCheck = await pool.query(
+            `SELECT buyer_id, seller_id FROM orders WHERE id = $1`,
+            [req.params.orderId]
+        );
+        
+        if (orderCheck.rows.length === 0) {
+            return res.status(404).json({ error: 'Заказ не найден' });
+        }
+        
+        const order = orderCheck.rows[0];
+        if (order.buyer_id !== req.user.id && order.seller_id !== req.user.id) {
+            return res.status(403).json({ error: 'Доступ запрещён' });
+        }
+        
         const result = await pool.query(
             `INSERT INTO chat_messages (order_id, sender_id, message)
              VALUES ($1, $2, $3) RETURNING *`,
-            [req.params.orderId, req.user.id, message]
+            [req.params.orderId, req.user.id, message.trim()]
         );
         
-        res.json({ message: result.rows[0] });
+        // Добавляем sender_name для ответа
+        const messageWithSender = {
+            ...result.rows[0],
+            sender_name: req.user.username
+        };
+        
+        res.json({ message: messageWithSender });
     } catch (error) {
+        console.error('Send message error:', error);
         res.status(500).json({ error: 'Ошибка отправки сообщения' });
     }
 });
