@@ -344,8 +344,22 @@ app.post('/api/orders', authMiddleware, async (req, res) => {
             [listing_id, req.user.id, listing.rows[0].seller_id, fruit_offered, fruit_amount]
         );
         
-        res.json({ message: 'Заказ создан', order: result.rows[0] });
+        const order = result.rows[0];
+        
+        // Автоматически создаём системное сообщение в чате
+        await pool.query(
+            `INSERT INTO chat_messages (order_id, sender_id, message, is_system)
+             VALUES ($1, $2, $3, true)`,
+            [
+                order.id,
+                req.user.id,
+                `🎉 Новый заказ создан!\n\n📦 Товар: ${listing.rows[0].title}\n💰 Цена: ${fruit_amount}x ${fruit_offered}\n\n👤 Покупатель: ${req.user.username}\n\nПродавец, пожалуйста, свяжитесь с покупателем для завершения сделки.`
+            ]
+        );
+        
+        res.json({ message: 'Заказ создан', order });
     } catch (error) {
+        console.error('Create order error:', error);
         res.status(500).json({ error: 'Ошибка создания заказа' });
     }
 });
@@ -534,6 +548,89 @@ app.post('/api/support/ban', authMiddleware, adminMiddleware, async (req, res) =
         await pool.query(
             `INSERT INTO banned_users (user_id, banned_by, reason, expires_at)
              VALUES ($1, $2, $3, $4)`,
+            [user_id, req.user.id, reason, expires_at]
+        );
+        
+        await pool.query('UPDATE users SET is_banned = true WHERE id = $1', [user_id]);
+        
+        res.json({ message: 'Пользователь забанен' });
+    } catch (error) {
+        res.status(500).json({ error: 'Ошибка бана' });
+    }
+});
+
+// Get banned users (admin)
+app.get('/api/support/banned', authMiddleware, adminMiddleware, async (req, res) => {
+    try {
+        const result = await pool.query(
+            `SELECT b.*, 
+             u.username as banned_username,
+             admin.username as banned_by_name
+             FROM banned_users b
+             JOIN users u ON b.user_id = u.id
+             JOIN users admin ON b.banned_by = admin.id
+             WHERE b.is_active = true
+             ORDER BY b.banned_at DESC`
+        );
+        
+        res.json({ banned_users: result.rows });
+    } catch (error) {
+        console.error('Get banned users error:', error);
+        res.status(500).json({ error: 'Ошибка загрузки списка' });
+    }
+});
+
+// Unban user (admin)
+app.post('/api/support/unban', authMiddleware, adminMiddleware, async (req, res) => {
+    try {
+        const { user_id } = req.body;
+        
+        await pool.query('UPDATE banned_users SET is_active = false WHERE user_id = $1', [user_id]);
+        await pool.query('UPDATE users SET is_banned = false WHERE id = $1', [user_id]);
+        
+        res.json({ message: 'Пользователь разбанен' });
+    } catch (error) {
+        res.status(500).json({ error: 'Ошибка разбана' });
+    }
+});
+
+// Get all users (admin)
+app.get('/api/users', authMiddleware, adminMiddleware, async (req, res) => {
+    try {
+        const result = await pool.query(
+            `SELECT id, username, email, avatar_url, rating, total_reviews, is_admin, is_banned, created_at
+             FROM users
+             ORDER BY created_at DESC
+             LIMIT 100`
+        );
+        
+        res.json({ users: result.rows });
+    } catch (error) {
+        console.error('Get users error:', error);
+        res.status(500).json({ error: 'Ошибка загрузки пользователей' });
+    }
+});
+
+// Search users (admin)
+app.get('/api/users/search', authMiddleware, adminMiddleware, async (req, res) => {
+    try {
+        const { username } = req.query;
+        
+        const result = await pool.query(
+            `SELECT id, username, email, avatar_url, rating, total_reviews, is_admin, is_banned, created_at
+             FROM users
+             WHERE username ILIKE $1
+             ORDER BY username
+             LIMIT 20`,
+            [`%${username}%`]
+        );
+        
+        res.json({ users: result.rows });
+    } catch (error) {
+        console.error('Search users error:', error);
+        res.status(500).json({ error: 'Ошибка поиска' });
+    }
+});
             [user_id, req.user.id, reason, expires_at]
         );
         
