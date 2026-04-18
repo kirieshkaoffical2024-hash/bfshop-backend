@@ -641,16 +641,6 @@ app.get('/api/users/search', authMiddleware, adminMiddleware, async (req, res) =
         res.status(500).json({ error: 'Ошибка поиска' });
     }
 });
-            [user_id, req.user.id, reason, expires_at]
-        );
-        
-        await pool.query('UPDATE users SET is_banned = true WHERE id = $1', [user_id]);
-        
-        res.json({ message: 'Пользователь забанен' });
-    } catch (error) {
-        res.status(500).json({ error: 'Ошибка бана' });
-    }
-});
 
 // ============================================
 // CHAT ROUTES
