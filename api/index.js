@@ -350,6 +350,38 @@ app.post('/api/orders', authMiddleware, async (req, res) => {
     }
 });
 
+// Get single order
+app.get('/api/orders/:id', authMiddleware, async (req, res) => {
+    try {
+        const result = await pool.query(
+            `SELECT o.*, l.title as listing_title, l.type as listing_type,
+             buyer.username as buyer_name, seller.username as seller_name
+             FROM orders o
+             JOIN listings l ON o.listing_id = l.id
+             JOIN users buyer ON o.buyer_id = buyer.id
+             JOIN users seller ON o.seller_id = seller.id
+             WHERE o.id = $1`,
+            [req.params.id]
+        );
+        
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: 'Заказ не найден' });
+        }
+        
+        const order = result.rows[0];
+        
+        // Check access
+        if (order.buyer_id !== req.user.id && order.seller_id !== req.user.id) {
+            return res.status(403).json({ error: 'Доступ запрещен' });
+        }
+        
+        res.json({ order });
+    } catch (error) {
+        console.error('Get order error:', error);
+        res.status(500).json({ error: 'Ошибка загрузки заказа' });
+    }
+});
+
 // Get user orders
 app.get('/api/orders', authMiddleware, async (req, res) => {
     try {
