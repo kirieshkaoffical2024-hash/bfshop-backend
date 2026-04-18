@@ -12,9 +12,9 @@ const server = http.createServer(app);
 
 // Database connection
 const pool = new Pool({
-    connectionString: process.env.DATABASE_URL,
-    ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false
-});
+connectionString: process.env.DATABASE_URL,
+ssl: { ejectUnauthorized: false }
+}); 
 
 // Middleware
 app.use(cors({
