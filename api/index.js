@@ -544,6 +544,26 @@ app.get('/api/support/tickets/all', authMiddleware, adminMiddleware, async (req,
     }
 });
 
+// Get my tickets
+app.get('/api/support/tickets/my', authMiddleware, async (req, res) => {
+    try {
+        const result = await pool.query(
+            `SELECT t.*, 
+             reported.username as reported_user_name
+             FROM support_tickets t
+             JOIN users reported ON t.reported_user_id = reported.id
+             WHERE t.reporter_id = $1
+             ORDER BY t.created_at DESC`,
+            [req.user.id]
+        );
+        
+        res.json({ tickets: result.rows });
+    } catch (error) {
+        console.error('Get my tickets error:', error);
+        res.status(500).json({ error: 'Ошибка загрузки жалоб' });
+    }
+});
+
 // Ban user (admin)
 app.post('/api/support/ban', authMiddleware, adminMiddleware, async (req, res) => {
     try {
@@ -638,6 +658,31 @@ app.get('/api/users/search', authMiddleware, adminMiddleware, async (req, res) =
         res.json({ users: result.rows });
     } catch (error) {
         console.error('Search users error:', error);
+        res.status(500).json({ error: 'Ошибка поиска' });
+    }
+});
+
+// Search users for support (public)
+app.get('/api/users/find', authMiddleware, async (req, res) => {
+    try {
+        const { username } = req.query;
+        
+        if (!username || username.trim().length < 2) {
+            return res.json({ users: [] });
+        }
+        
+        const result = await pool.query(
+            `SELECT id, username, avatar_url, rating, total_reviews
+             FROM users
+             WHERE username ILIKE $1 AND is_banned = false
+             ORDER BY username
+             LIMIT 10`,
+            [`%${username.trim()}%`]
+        );
+        
+        res.json({ users: result.rows });
+    } catch (error) {
+        console.error('Find users error:', error);
         res.status(500).json({ error: 'Ошибка поиска' });
     }
 });
