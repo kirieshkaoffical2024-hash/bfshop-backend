@@ -1,133 +1,108 @@
-const express = require('express');
-const db = require('../database');
-const authMiddleware = require('../middleware/auth');
+// Listings JavaScript
 
-const router = express.Router();
+let currentFilter = 'all';
+let currentSearch = '';
 
-// Get all listings
-router.get('/', async (req, res) => {
+// Load listings
+async function loadListings() {
+    const listingsGrid = document.getElementById('listingsGrid');
+    const loading = document.getElementById('loading');
+    const noResults = document.getElementById('noResults');
+    
+    if (!listingsGrid) return;
+    
+    loading.style.display = 'block';
+    noResults.style.display = 'none';
+    listingsGrid.innerHTML = '';
+    
     try {
-        const { type, search, sort = 'created_at', order = 'DESC' } = req.query;
+        const params = new URLSearchParams();
+        if (currentFilter !== 'all') params.append('type', currentFilter);
+        if (currentSearch) params.append('search', currentSearch);
         
-        let query = `
-            SELECT l.*, u.username as seller_name, u.avatar_url as seller_avatar, u.rating as seller_rating
-            FROM listings l
-            JOIN users u ON l.seller_id = u.id
-            WHERE l.status = 'active'
-        `;
-        const params = [];
+        const data = await apiRequest(`/listings?${params.toString()}`);
         
-        if (type) {
-            params.push(type);
-            query += ` AND l.type = $${params.length}`;
+        loading.style.display = 'none';
+        
+        if (data.listings.length === 0) {
+            noResults.style.display = 'block';
+            return;
         }
         
-        if (search) {
-            params.push(`%${search}%`);
-            query += ` AND (l.title ILIKE $${params.length} OR l.description ILIKE $${params.length})`;
-        }
-        
-        query += ` ORDER BY l.${sort} ${order}`;
-        
-        const result = await db.query(query, params);
-        res.json({ listings: result.rows });
+        data.listings.forEach(listing => {
+            const card = createListingCard(listing);
+            listingsGrid.appendChild(card);
+        });
     } catch (error) {
-        console.error('Error fetching listings:', error);
-        res.status(500).json({ error: 'Failed to fetch listings' });
+        loading.style.display = 'none';
+        console.error('Error loading listings:', error);
     }
-});
+}
 
-// Get single listing
-router.get('/:id', async (req, res) => {
-    try {
-        const result = await db.query(
-            `SELECT l.*, u.username as seller_name, u.avatar_url as seller_avatar, u.rating as seller_rating, u.total_reviews
-             FROM listings l
-             JOIN users u ON l.seller_id = u.id
-             WHERE l.id = $1`,
-            [req.params.id]
-        );
-        
-        if (result.rows.length === 0) {
-            return res.status(404).json({ error: 'Listing not found' });
-        }
-        
-        // Increment views
-        await db.query('UPDATE listings SET views = views + 1 WHERE id = $1', [req.params.id]);
-        
-        res.json({ listing: result.rows[0] });
-    } catch (error) {
-        console.error('Error fetching listing:', error);
-        res.status(500).json({ error: 'Failed to fetch listing' });
-    }
-});
+// Create listing card
+function createListingCard(listing) {
+    const card = document.createElement('div');
+    card.className = 'listing-card';
+    card.onclick = () => window.location.href = `listing.html?id=${listing.id}`;
+    
+    const typeEmoji = {
+        'account': '🎮',
+        'boost': '⚡',
+        'quest': '🗡️',
+        'boss': '👹'
+    };
+    
+    const rating = listing.seller_rating ? parseFloat(listing.seller_rating).toFixed(1) : '0.0';
+    
+    card.innerHTML = `
+        <div class="listing-image"></div>
+        <div class="listing-content">
+            <span class="listing-type">${typeEmoji[listing.type] || ''} ${listing.type.toUpperCase()}</span>
+            <h3 class="listing-title">${listing.title}</h3>
+            <p class="listing-description">${listing.description || 'Нет описания'}</p>
+            <div class="listing-price">
+                🍎 ${listing.price_amount} ${listing.price_fruit}
+            </div>
+            <div class="listing-seller">
+                <img src="https://ui-avatars.com/api/?name=${encodeURIComponent(listing.seller_name)}&background=e94560&color=fff" class="seller-avatar">
+                <span>${listing.seller_name}</span>
+                <span class="seller-rating">⭐ ${rating}</span>
+            </div>
+        </div>
+    `;
+    
+    return card;
+}
 
-// Create listing
-router.post('/', authMiddleware, async (req, res) => {
-    try {
-        const { type, title, description, price_fruit, price_amount, details, images, account_data } = req.body;
-        
-        if (!type || !title || !price_fruit || !price_amount) {
-            return res.status(400).json({ error: 'Missing required fields' });
+// Initialize
+document.addEventListener('DOMContentLoaded', () => {
+    // Load listings
+    loadListings();
+    
+    // Filter buttons
+    const filterButtons = document.querySelectorAll('.filter-btn');
+    filterButtons.forEach(btn => {
+        btn.addEventListener('click', () => {
+            filterButtons.forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            currentFilter = btn.dataset.type;
+            loadListings();
+        });
+    });
+    
+    // Search
+    const searchBtn = document.getElementById('searchBtn');
+    const searchInput = document.getElementById('searchInput');
+    
+    searchBtn?.addEventListener('click', () => {
+        currentSearch = searchInput.value;
+        loadListings();
+    });
+    
+    searchInput?.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') {
+            currentSearch = searchInput.value;
+            loadListings();
         }
-        
-        // Для аккаунтов требуются данные
-        if (type === 'account' && !account_data) {
-            return res.status(400).json({ error: 'Account data is required for account listings' });
-        }
-        
-        const result = await db.query(
-            `INSERT INTO listings (seller_id, type, title, description, price_fruit, price_amount, details, images, account_data)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-             RETURNING *`,
-            [req.user.id, type, title, description, price_fruit, price_amount, JSON.stringify(details || {}), JSON.stringify(images || []), account_data || null]
-        );
-        
-        res.json({ listing: result.rows[0] });
-    } catch (error) {
-        console.error('Error creating listing:', error);
-        res.status(500).json({ error: 'Failed to create listing' });
-    }
+    });
 });
-
-// Update listing
-router.put('/:id', authMiddleware, async (req, res) => {
-    try {
-        const { title, description, price_fruit, price_amount, status } = req.body;
-        
-        // Check ownership
-        const check = await db.query('SELECT seller_id FROM listings WHERE id = $1', [req.params.id]);
-        if (check.rows.length === 0 || check.rows[0].seller_id !== req.user.id) {
-            return res.status(403).json({ error: 'Unauthorized' });
-        }
-        
-        const result = await db.query(
-            `UPDATE listings SET title = $1, description = $2, price_fruit = $3, price_amount = $4, status = $5, updated_at = CURRENT_TIMESTAMP
-             WHERE id = $6 RETURNING *`,
-            [title, description, price_fruit, price_amount, status, req.params.id]
-        );
-        
-        res.json({ listing: result.rows[0] });
-    } catch (error) {
-        console.error('Error updating listing:', error);
-        res.status(500).json({ error: 'Failed to update listing' });
-    }
-});
-
-// Delete listing
-router.delete('/:id', authMiddleware, async (req, res) => {
-    try {
-        const check = await db.query('SELECT seller_id FROM listings WHERE id = $1', [req.params.id]);
-        if (check.rows.length === 0 || check.rows[0].seller_id !== req.user.id) {
-            return res.status(403).json({ error: 'Unauthorized' });
-        }
-        
-        await db.query('UPDATE listings SET status = $1 WHERE id = $2', ['cancelled', req.params.id]);
-        res.json({ message: 'Listing deleted' });
-    } catch (error) {
-        console.error('Error deleting listing:', error);
-        res.status(500).json({ error: 'Failed to delete listing' });
-    }
-});
-
-module.exports = router;
