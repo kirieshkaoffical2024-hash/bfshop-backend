@@ -13,7 +13,7 @@ const server = http.createServer(app);
 // Database connection
 const pool = new Pool({
 connectionString: process.env.DATABASE_URL,
-ssl: { ejectUnauthorized: false }
+ssl: { rejectUnauthorized: false }
 }); 
 
 // Middleware
