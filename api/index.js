@@ -11,10 +11,13 @@ const app = express();
 const server = http.createServer(app);
 
 // Database connection
+const connectionString = process.env.DATABASE_URL;
 const pool = new Pool({
-connectionString: process.env.DATABASE_URL,
-ssl: { rejectUnauthorized: false }
-}); 
+    connectionString,
+    ssl: connectionString && connectionString.includes('supabase') 
+        ? { rejectUnauthorized: false } 
+        : false
+});
 
 // Middleware
 app.use(cors({
