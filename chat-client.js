@@ -39,8 +39,8 @@ async function initChat() {
         // Load messages
         await loadMessages();
         
-        // Start polling (обновление каждую секунду для реального времени)
-        pollingInterval = setInterval(loadMessages, 1000);
+        // Start polling (обновление каждые 3 секунды)
+        pollingInterval = setInterval(loadMessages, 3000);
         
         // Send message handler
         const sendBtn = document.getElementById('sendBtn');
@@ -103,18 +103,8 @@ async function loadMessages() {
 // Create message element
 function createMessageElement(message) {
     const div = document.createElement('div');
-    
-    // Системное сообщение
-    if (message.is_system) {
-        div.className = 'message system';
-        div.innerHTML = `
-            <div class="message-text">${escapeHtml(message.message).replace(/\n/g, '<br>')}</div>
-        `;
-        return div;
-    }
-    
-    // Обычное сообщение
     const isOwn = message.sender_id === currentUser.id;
+    
     div.className = `message ${isOwn ? 'own' : 'other'}`;
     
     const time = new Date(message.created_at).toLocaleTimeString('ru-RU', {
